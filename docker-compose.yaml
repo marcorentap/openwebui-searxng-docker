@@ -1,0 +1,33 @@
+services:
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main-slim
+    restart: unless-stopped
+    ports:
+      - 50000:8080
+    volumes:
+      - open-webui:/app/backend/data
+    env_file:
+      - .env
+    networks:
+      - open-webui
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    restart: unless-stopped
+    ports:
+      - 50001:8080
+    volumes:
+      - searxng-config:/etc/searxng:rw
+      - searxng-cache:/var/cache/searxng:rw
+      - ./searxng-settings.yml:/etc/searxng/settings.yml:ro
+    env_file:
+      - .env
+    networks:
+      - open-webui
+
+networks:
+  open-webui:
+
+volumes:
+  open-webui:
+  searxng-config:
+  searxng-cache:
