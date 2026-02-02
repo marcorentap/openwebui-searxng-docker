@@ -1,0 +1,162 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: searxng-settings
+data:
+  settings.yml: |
+    use_default_settings: true
+    search:
+      formats:
+        - html
+        - json
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-env
+type: Opaque
+stringData:
+  OPENAI_API_KEY: "put_key_here"
+  SEARXNG_SECRET: "use_whatever_here"
+  WEB_SEARCH_ENGINE: "searxng"
+  ENABLE_WEB_SEARCH: "true"
+  SEARCH_RESULT_COUNT: "5"
+  SEARXNG_QUERY_URL: "http://searxng:8080/search?q=<query>"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openwebui
+  labels:
+    app: openwebui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openwebui
+  template:
+    metadata:
+      labels:
+        app: openwebui
+    spec:
+      containers:
+        - name: openwebui
+          image: ghcr.io/open-webui/open-webui:latest
+          envFrom:
+            - secretRef:
+                name: app-env
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: openwebui-data
+              mountPath: /app/backend/data
+      volumes:
+        - name: openwebui-data
+          persistentVolumeClaim:
+            claimName: openwebui-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openwebui
+spec:
+  type: NodePort
+  selector:
+    app: openwebui
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: searxng
+  labels:
+    app: searxng
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: searxng
+  template:
+    metadata:
+      labels:
+        app: searxng
+    spec:
+      containers:
+        - name: searxng
+          image: docker.io/searxng/searxng:latest
+          envFrom:
+            - secretRef:
+                name: app-env
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: searxng-settings
+              mountPath: /etc/searxng/settings.yml
+              subPath: settings.yml
+              readOnly: true
+            - name: searxng-cache
+              mountPath: /var/cache/searxng
+      volumes:
+        - name: searxng-settings
+          configMap:
+            name: searxng-settings
+        - name: searxng-cache
+          persistentVolumeClaim:
+            claimName: searxng-cache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: searxng
+spec:
+  type: NodePort
+  selector:
+    app: searxng
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openwebui-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: "longhorn"
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: searxng-cache
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: "longhorn"
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openwebui
+  labels:
+    app: openwebui
+spec:
+  rules:
+    - host: openwebui.coven.marcorentap.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: "/"
+            backend:
+              service:
+                name: openwebui
+                port:
+                  number: 8080
